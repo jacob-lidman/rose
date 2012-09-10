@@ -12,7 +12,7 @@ int main () {
                      case 1:
                          break;
                      case 2:
-					switch(k) {
+			switch(k) {
                           case 0: j++;   break;
                           case 1: return 1;
                           default:break;

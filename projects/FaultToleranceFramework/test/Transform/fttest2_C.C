@@ -2,12 +2,14 @@
      1) Check various basic statements
      2) Make sure the transformer doesn't "fault-tolerize" a stm more than once.
      3) Make sure BB's are not mixed up.
-     4) Test floating point voter
+     4) OBSOLETE! (Test floating point voter)
+     5) This test should fail with mean-voting (mean voting on ptr-addr is considered illegal, see "Swap" section below)...
 */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 
 //Test multi
 #define M_ 10
@@ -30,9 +32,16 @@ int main () {
      do {
           j = 0;
           A[i] = (float *) malloc(sizeof(float) * N_);
+	  /*//Random inputs
           while(j < N_) {
                float d = (float)(rand() % 1000);
                A[i][j] = (rand() % 100) + (1.0 / (d == 0.0 ? 1.0 : d));
+               j++;
+          }*/
+
+	  //Deterministic inputs
+          while(j < N_) {
+               A[i][j] = i*N_+j;
                j++;
           }
           for(j = 0; j < N_; j++)
@@ -56,12 +65,10 @@ int main () {
                #pragma resiliency
                if(A[maxi][j] != 0.0) {
                     //Swap...
-                      #pragma resiliency
-                      {
-                           float *s = A[maxi];
+                           float *s;
+			   s = A[maxi];
                            A[maxi] = A[i];
                            A[i] = s;
-                      }
                     //Divide
                       for(k = 0; k < N_; k++)
                          A[i][k] /= A[i][j];
