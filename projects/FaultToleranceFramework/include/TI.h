@@ -15,6 +15,8 @@ class AstValueAttribute : public AstAttribute {
           T value;
      public:
           AstValueAttribute(T value) {this->value = value;}
+	  //07-11-2012 (JL): getAttribute() after copyExpression() fails if this isn't overrided.
+	  AstAttribute *copy() {return new AstValueAttribute<T>(T(getValue()));}
           T getValue() {return this->value;}
           virtual std::string toString() {
                     stringstream ss;
@@ -79,8 +81,10 @@ namespace TInterface {
      bool IsStatement(SgNode *node);
      bool IsLoop(SgNode *node, SgNode** init, SgNode** cond, SgNode** incr, SgNode** body);
      bool SetLoop(SgNode *node, SgNode* init, SgNode* cond, SgNode* incr, SgNode* body);
-     bool IsBlock(SgNode *node, SgStatement **stmBody, SgStatementPtrList **stmBodyList, SgScopeStatement **scope);
-     bool SetBlock(SgNode *node, SgStatement *stmBody, SgStatementPtrList *stmBodyList, SgScopeStatement *scope);
+	bool IsCase(SgNode *node, SgStatement **stmBody, SgScopeStatement **scope);
+	bool SetCase(SgNode *node, SgStatement *stmBody, SgScopeStatement *scope);
+     bool IsBlock(SgNode *node, SgStatementPtrList **stmBodyList, SgScopeStatement **scope);
+     bool SetBlock(SgNode *node, SgStatementPtrList *stmBodyList, SgScopeStatement *scope);
 };
 
 #endif

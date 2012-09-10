@@ -10,7 +10,14 @@ TEST_CODES = $(TEST_PATH)/fttest1_C.C \
 	$(TEST_PATH)/fttest2_Cxx.C \
 	$(TEST_PATH)/fttest3_C.C \
 	$(TEST_PATH)/fttest4_C.C \
-	$(TEST_PATH)/testcaseSmall.C \
-	$(TEST_PATH)/testcase.C
+	$(TEST_PATH)/testcase.C \
+	$(TEST_PATH)/ll_kernel1.C \
+	$(TEST_PATH)/ll_kernel4.C \
+	$(TEST_PATH)/ll_kernel5.C \
+	$(TEST_PATH)/ll_kernel11.C
 
-EXTRA_DIST = $(TEST_CODES)
+CORRECT_OUTPUT = $(TEST_PATH)/fttest1_C.output \
+	$(TEST_PATH)/fttest2_C.output \
+	$(TEST_PATH)/fttest4_C.output
+
+EXTRA_DIST = $(TEST_CODES) $(CORRECT_OUTPUT)

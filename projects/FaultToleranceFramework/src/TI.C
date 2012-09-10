@@ -167,7 +167,10 @@ namespace BInterface {
      }
 
      SgAggregateInitializer *buildArrayInitializer(SgExpression *exp, SgType *type, int arraySize) {
-          return SageBuilder::buildAggregateInitializer( SageBuilder::buildExprListExp(std::vector< SgExpression * >(arraySize, exp)),type );
+		if(exp == NULL)
+			return NULL;
+		else
+          	return SageBuilder::buildAggregateInitializer( SageBuilder::buildExprListExp(std::vector< SgExpression * >(arraySize, exp)),type );
      }
 
      SgExpression *buildConstant(SgType *baseType, long double c) {
@@ -194,9 +197,10 @@ namespace BInterface {
            case V_SgTypeChar:           return SageBuilder::buildCharVal( (c > 255.0 ? (char) 255 : (char) round(c)) );
            case V_SgTypeBool:           return SageBuilder::buildBoolValExp( (c > 0 ? true : false) );
            case V_SgTypeCrayPointer:  
-           case V_SgPointerType:   return NULL; //TODO!
+           case V_SgPointerType:   	return SageBuilder::buildLongIntVal( (long) round(c) );
            default:
                //Only for primitives
+		cout << "Unhandled class '" << baseType->class_name() << "'..." << endl;
                assert(false);
                return NULL;
           }
@@ -220,7 +224,6 @@ namespace TInterface {
                 it != collectedNodes.end();
                 ++it)
                     delete *it;
-
           return true;
      }
 
@@ -245,7 +248,7 @@ namespace TInterface {
 
      bool loadHeaderFile(SgGlobal *globalTarget, string fileName, bool isSystemHeader) {
           //Build temporary file =)
-            char *tmpFilename = "/tmp/tmpfileROSE.C";
+            char *tmpFilename = (char *) "/tmp/tmpfileROSE.C";
             ofstream tmpF( tmpFilename );
             if(isSystemHeader)
                tmpF << "#include <" << fileName << ">" << endl;
@@ -253,7 +256,7 @@ namespace TInterface {
                tmpF << "#include \"" << fileName << "\"" << endl;   
             tmpF.close();
           //Open frontend...
-            char *argvInc[] = {"", tmpFilename};
+            char *argvInc[] = {(char *) "", tmpFilename};
             SgProject *incProject = frontend(2, argvInc);
           //Put contents of global symbol table over to 
             SgGlobal *globalInc = SageInterface::getFirstGlobalScope(incProject);
@@ -886,45 +889,20 @@ namespace TInterface {
           }
           return true;
      }
-     bool IsBlock(SgNode *node, SgStatement **stmBody, SgStatementPtrList **stmBodyList, SgScopeStatement **scope) {  
+	bool IsCase(SgNode *node, SgStatement **stmBody, SgScopeStatement **scope) {
           switch (node->variantT()) {
-           case V_SgBasicBlock: {
-               SgBasicBlock *bb = isSgBasicBlock(node);
-               if(stmBodyList) *stmBodyList = &bb->get_statements();
-               if(stmBody) *stmBody = NULL;
-               if(scope) *scope = bb;
-             } break;
            case V_SgSwitchStatement: {
                SgSwitchStatement *switchStm = isSgSwitchStatement(node);
-               if(stmBodyList) *stmBodyList = NULL;
                if(stmBody) *stmBody = switchStm->get_body();
                if(scope) *scope = switchStm;
              } break;
-           case V_SgForInitStatement: {
-               SgForInitStatement *forInitStm = isSgForInitStatement(node);
-               if(stmBodyList) *stmBodyList = &forInitStm->get_init_stmt();
-               if(stmBody) *stmBody = NULL;
-               if(scope) *scope = NULL;
-             } break;
-           default:
-               return false;
-          };
-          return true;
-     }
-     bool SetBlock(SgNode *node, SgStatement *stmBody, SgStatementPtrList *stmBodyList, SgScopeStatement *scope) {  
+		 default:
+			return false;
+		}
+		return true;
+	}
+     bool SetCase(SgNode *node, SgStatement *stmBody, SgScopeStatement *scope) {  
           switch (node->variantT()) {
-           case V_SgBasicBlock: {
-               SgBasicBlock *bb = isSgBasicBlock(node);
-               if( (stmBodyList != NULL) && (stmBodyList != &bb->get_statements()) ) {
-                    bb->get_statements().clear();
-                    for(SgStatementPtrList::iterator it = stmBodyList->begin();
-                        it != stmBodyList->end();
-                        ++it) {
-                              bb->get_statements().push_back( *it );
-                              (*it)->set_parent( bb );
-                         }
-               }
-             } break;
            case V_SgSwitchStatement: {
                SgSwitchStatement *switchStm = isSgSwitchStatement(node);
                if((stmBody != NULL) && (stmBody != switchStm->get_body())) {
@@ -932,12 +910,48 @@ namespace TInterface {
                    stmBody->set_parent(switchStm);
                }
              } break;
+		 default:
+			return false;
+		}
+		return true;
+	}
+     bool IsBlock(SgNode *node, SgStatementPtrList **stmBody, SgScopeStatement **scope) {  
+          switch (node->variantT()) {
+           case V_SgBasicBlock: {
+               SgBasicBlock *bb = isSgBasicBlock(node);
+               if(stmBody) *stmBody = &bb->get_statements();
+               if(scope) *scope = bb;
+             } break;
            case V_SgForInitStatement: {
                SgForInitStatement *forInitStm = isSgForInitStatement(node);
-               if((stmBodyList != NULL) && (stmBodyList != &forInitStm->get_init_stmt())) {
+               if(stmBody) *stmBody = &forInitStm->get_init_stmt();
+               if(scope) *scope = NULL;
+             } break;
+           default:
+               return false;
+          };
+          return true;
+     }
+     bool SetBlock(SgNode *node, SgStatementPtrList *stmBody, SgScopeStatement *scope) {  
+          switch (node->variantT()) {
+           case V_SgBasicBlock: {
+               SgBasicBlock *bb = isSgBasicBlock(node);
+               if( (stmBody != NULL) && (stmBody != &bb->get_statements()) ) {
+                    bb->get_statements().clear();
+                    for(SgStatementPtrList::iterator it = stmBody->begin();
+                        it != stmBody->end();
+                        ++it) {
+                              bb->get_statements().push_back( *it );
+                              (*it)->set_parent( bb );
+                         }
+               }
+             } break;
+           case V_SgForInitStatement: {
+               SgForInitStatement *forInitStm = isSgForInitStatement(node);
+               if((stmBody != NULL) && (stmBody != &forInitStm->get_init_stmt())) {
                     forInitStm->get_init_stmt().clear();
-                    for(SgStatementPtrList::iterator it = stmBodyList->begin();
-                        it != stmBodyList->end();
+                    for(SgStatementPtrList::iterator it = stmBody->begin();
+                        it != stmBody->end();
                         ++it) {
                               forInitStm->get_init_stmt().push_back( *it );
                               (*it)->set_parent( forInitStm );

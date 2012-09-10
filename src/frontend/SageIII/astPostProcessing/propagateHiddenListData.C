@@ -22,6 +22,8 @@ PropagateHiddenListData::evaluateInheritedAttribute(SgNode* node, PropagateHidde
      if (scope != NULL)
         {
           Sg_File_Info* fileInfo = scope->get_startOfConstruct();
+          if(fileInfo == NULL)
+             cout << "Error: scope->get_startOfConstruct() == NULL scope = " << scope << " = " << scope->class_name() << endl;
           ROSE_ASSERT(fileInfo != NULL);
 #if 0
           printf ("Scope = %p = %s file = %s line = %d \n",scope,scope->class_name().c_str(),fileInfo->get_filenameString().c_str(),fileInfo->get_line());

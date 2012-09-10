@@ -6,12 +6,13 @@ noinst_LIBRARIES = libroseft.a
 
 libroseft_a_SOURCES = \
 			TI.C \
+			ft_common.C \
 			Transform/ft_trans.C \
 			FaultHandlingPolicy.C \
 			FaultHandlingSpec.C
 
 LDADD = \
-	$(ROSE_LIBS) 
+	$(ROSE_LIBS) -L
 
 SUBDIRS = Algorithms Analysis Transform
 

@@ -131,7 +131,7 @@ echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
 # DQ (8/24/2009): Allow either "roseTranslator" or "roseAnalysis"
 # if [ "$compilerName" == "roseTranslator" ]
 # if [ "$compilerName" == "roseTranslator" || "$compilerName" == "roseAnalysis" ]
-if [ "$compilerName" == "roseTranslator" ]
+if [ "${compilerName}" == "roseTranslator" ]
 then
 compilerName="g++"
 echo "Changed compilerName from roseTranslator to $compilerName"
@@ -139,7 +139,7 @@ echo "Changed compilerName from roseTranslator to $compilerName"
 echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
 echo "After change: compilerName   = $compilerName"
 echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
-elif [ "$compilerName" == "roseAnalysis" ]
+elif [ "${compilerName}" == "roseAnalysis" ]
 then
 compilerName="g++"
 echo "Changed compilerName from roseAnalysis to $compilerName"

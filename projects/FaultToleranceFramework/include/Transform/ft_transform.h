@@ -5,7 +5,8 @@
 #include <limits>
 #include <map>
 #include <vector>
-#include <boost/regex.hpp>
+#include <boost/function.hpp>
+#include <boost/bimap.hpp>
 
 #include "rose.h"
 #include "OmpAttribute.h"
@@ -13,15 +14,13 @@
 #include "TI.h"
 #include "ft_common.h"
 
-//The following defines the behavior/assumptions build into the FT modules.
-#define FT_TRANFORMATION_NODE_ATTR "FT_TRANSFORMATION_"
-#define FT_POST_ERROR_MSG_AS_SRC_COMMENT
-
 /** 
  * @namespace FT
  * @brief Fault-tolerant main namespace, encapsulates FT::Common, FT::Transform, FT::Analysis
  * 
 */
+
+using namespace std;
 
 namespace FT {
    /** 
@@ -32,14 +31,186 @@ namespace FT {
      * includes variable declarations and initialization. The execute section performs the redundant computations. Finally, the unifications
      * section unifies the results of the redundant computations by a fault handling policy.
      * @author Jacob Lidman
-     * 
     */
    class Transform {
      public:
+		 //Declarations
+		   class SymbDesc;
+		   class SymbTerm;
+		   class Closure;
+		 //Upgrades
+		   //... from FT::Common
+		     static FT::Common::Region_Desc *upgrade(FT::Transform::Closure *c, FT::Common::Region_Desc *rD);
+		 //Misc. functions...
+		   static SgBasicBlock *appendStatement(SgStatement *stm, SgBasicBlock *bb, bool neverDelete = false);
+		   static string toString(FT::Transform::SymbDesc *desc);
+		 //Closure
+		   /**
+		     * @class Closure
+		     * @class Provides a method for data-sharing between policies.
+		    */
+		   class Closure {
+			  public:
+			      //Decision functors...
+				struct RegionOrder {
+				      FT::Transform::Closure *declClos;
+
+				      RegionOrder(FT::Transform::Closure *declClos) {this->declClos = declClos;}
+				      //Less-safe
+					virtual FT::Common::Region_Desc *lSafe(FT::Common::Region_Desc *x, unsigned int N);
+				      //More-safe
+					virtual FT::Common::Region_Desc *mSafe(FT::Common::Region_Desc *x, unsigned int N);
+				};
+			  private:
+				//left: original, right: shadow
+				boost::bimap<FT::Common::Region_Desc *, FT::Common::Region_Desc *> shadowRegions;
+				map<SgName, FT::Transform::SymbTerm *> symDef;
+				map<FT::Transform::SymbDesc *, bool> declaredSym;
+				FT::Common::Region_Desc rD;
+				Closure *pClose;
+
+				Closure::RegionOrder *ROrd;
+			  public:
+				Closure(Closure *pClose = NULL, RegionOrder *ROrder = NULL) : rD(NULL, SageBuilder::buildVoidType()) {
+					this->ROrd = (ROrder == NULL ? new RegionOrder(this) : ROrder);
+					this->pClose = pClose;
+				}
+				~Closure() {}
+
+				//Closure cloning/handling
+				  Closure *child();
+				  SgBasicBlock *kill();
+				//Region handling
+				  FT::Common::Region_Desc *lookupOriginal(FT::Common::Region_Desc *regDesc);
+				  FT::Common::Region_Desc *lookupShadow(FT::Common::Region_Desc *regDesc);
+				  FT::Common::Region_Desc *createShadow(FT::Common::Region_Desc *regDesc);
+				  FT::Common::Region_Desc *lessSafe(FT::Common::Region_Desc *x, unsigned int N) {return ROrd->lSafe(x, N);}
+				  FT::Common::Region_Desc *moreSafe(FT::Common::Region_Desc *x, unsigned int N) {return ROrd->mSafe(x, N);}
+				//Symbol handling
+				  FT::Transform::SymbTerm *lookup(SgName n);
+				  FT::Transform::SymbDesc *getNamedLoc(SgExpression *loc);
+				  bool declareNamedLoc(FT::Transform::SymbDesc *sym);
+				  FT::Transform::SymbTerm *addNamedLoc(SgName name, unsigned int N, FT::Common::Region_Desc *r = NULL, SgType *type = NULL);
+		    };
+		 //Symbol (named location) descriptor
+		   class SymbDesc {
+			private:
+			  Closure *c;
+			public:
+			//(De)Constructor(s)
+			  SymbDesc(Closure *c) {this->c = c;}
+			//Functions
+			  bool getLHS(set<SgExpression *> &x, unsigned int sI, unsigned int eI);
+			  Closure *getClosure() {return c;}
+			//Transform symbol interface
+			  virtual SgExpression *project(unsigned int N) = 0;
+			  virtual FT::Common::SymbDesc::SYM_TYPE getSymType() = 0;
+			  virtual unsigned int getN() = 0;
+			  virtual void setN(unsigned int N) = 0;
+			  virtual SgName getName() = 0;
+			  virtual FT::Common::Region_Desc *getRegion() = 0;
+		   };
+		   class SymbTerm : public FT::Transform::SymbDesc,
+				    public FT::Common::SymbTerm {
+			protected:
+			  virtual void print(ostream &o) const {
+				o << "(Transform::SymbTerm-" << this << ") ";
+				o << "{<";
+					FT::Common::SymbTerm::print(o);
+				o << ">}";
+			  }
+			public:
+			//(De)Constructor(s)
+			  SymbTerm(Closure *c, FT::Common::SymbTerm *term) :
+					FT::Transform::SymbDesc(c), FT::Common::SymbTerm(term->getName(), term->getN(), term->getRegion()) {}
+			  SymbTerm(Closure *c, SgName name, unsigned int N, FT::Common::Region_Desc *rD = NULL, SgType *type = NULL) :
+					FT::Transform::SymbDesc(c), FT::Common::SymbTerm(name, N, rD, type) {}
+			//Functions
+			  virtual SgExpression *project(unsigned int N);
+			//Transform symbol interface
+			  unsigned int getN() {return FT::Common::SymbTerm::getN();}
+			  void setN(unsigned int N) {FT::Common::SymbTerm::setN(N);}
+			  SgName getName() {return FT::Common::SymbTerm::getName();}
+			  FT::Common::SymbDesc::SYM_TYPE getSymType() {return FT::Common::SymbTerm::getSymType();}
+			  FT::Common::Region_Desc *getRegion() {return FT::Common::SymbTerm::getRegion();}
+		   };
+		   class SymbNonTerm : public FT::Transform::SymbDesc,
+				     	public FT::Common::SymbNonTerm {
+			public:
+			//(De)Constructor(s)
+			  SymbNonTerm(Closure *c, FT::Common::SymbNonTerm *nonterm) :
+					FT::Transform::SymbDesc(c), FT::Common::SymbNonTerm(nonterm->getExp(), nonterm->getRegion()) {}
+			  SymbNonTerm(Closure *c, SgExpression *exp, FT::Common::Region_Desc *rD = NULL, SgType *type = NULL) :
+					FT::Transform::SymbDesc(c), FT::Common::SymbNonTerm(exp, rD, type) {}
+			//Functions
+			  virtual SgExpression *project(unsigned int N);
+			  void addSymbols(set<FT::Transform::SymbDesc *> &sym) {
+				for(set<FT::Transform::SymbDesc *>::iterator it = sym.begin();
+				    it != sym.end();
+				    ++it) {
+					FT::Common::SymbDesc *s = dynamic_cast<FT::Common::SymbDesc *>(*it);
+					if(s != NULL)
+					   addSymbol(s);
+				}
+			  }
+			//Transform symbol interface
+			  unsigned int getN() {return FT::Common::SymbNonTerm::getN();}
+			  void setN(unsigned int N) {FT::Common::SymbNonTerm::setN(N);}
+			  SgName getName() {return FT::Common::SymbNonTerm::getName();}
+			  FT::Common::SymbDesc::SYM_TYPE getSymType() {return FT::Common::SymbNonTerm::getSymType();}
+			  FT::Common::Region_Desc *getRegion() {return FT::Common::SymbNonTerm::getRegion();}
+		   };
+		   
+
+		 //Effect descriptor
+		   class Effect {
+			public:
+				typedef enum {
+					EFFECT_EXTENDED_NONE = 0,
+					EFFECT_EXTENDED_TRANSFORMED = 1
+				} EXTENDED_EFFECT_TYPE;
+			private:
+				EXTENDED_EFFECT_TYPE eeType;
+			public:
+				Effect(EXTENDED_EFFECT_TYPE e) {this->eeType = e;}
+				EXTENDED_EFFECT_TYPE getExtendedType() {return this->eeType;}
+
+				virtual bool transform(Closure *c, vector<SgStatement *> &stm, FT::Transform::SymbDesc *symDest = NULL) = 0;
+		   };
+		   class Effect_Transformed : public Effect,
+					      public FT::Common::Effect_Extended_Type {
+			private:
+				vector<SgStatement *> stms;
+			protected:
+
+			public:
+				Effect_Transformed() : FT::Transform::Effect(EFFECT_EXTENDED_TRANSFORMED), FT::Common::Effect_Extended_Type() {}
+				bool transform(Closure *c, vector<SgStatement *> &stm, FT::Transform::SymbDesc *symDest = NULL);
+
+				bool consume(SgStatement *stm);
+				bool consume(vector<SgStatement *> &stmList);
+		   };
+		   struct Effect_Unknown : public Effect, 
+					   public FT::Common::Effect_Unknown {
+			Effect_Unknown(SgStatement *stm = NULL) : FT::Transform::Effect(EFFECT_EXTENDED_NONE), FT::Common::Effect_Unknown(stm) {}
+			bool transform(Closure *c, vector<SgStatement *> &stm, FT::Transform::SymbDesc *symDest = NULL);
+		   };
+		   struct Effect_Symbolic : public Effect, 
+					    public FT::Common::Effect_Symbolic {
+			vector<bool> transformedEffects;
+
+			Effect_Symbolic(FT::Common::SymbDesc *exp = NULL) : FT::Transform::Effect(EFFECT_EXTENDED_NONE), FT::Common::Effect_Symbolic(exp) {}
+			bool transform(Closure *c, vector<SgStatement *> &stm, FT::Transform::SymbDesc *symDest = NULL);
+		   };
+		   struct Effect_StaticData : public Effect,
+					      public FT::Common::Effect_StaticData {
+			Effect_StaticData() : FT::Transform::Effect(EFFECT_EXTENDED_NONE), FT::Common::Effect_StaticData() {}
+			bool transform(Closure *c, vector<SgStatement *> &stm, FT::Transform::SymbDesc *symDest = NULL);
+		   };
            //Visitors
-             /** 
-             * @class FTPragmaVisitor
-             * @brief Default implmentation of FTVisitor. Applies fault-tolerance to each statement that has a "#pragma resiliency" proceeding it.
+             /** Named
+              * @class FTPragmaVisitor
+              * @brief Default implmentation of FTVisitor. Applies fault-tolerance to each statement that has a "#pragma resiliency" proceeding it.
              */
              class FTPragmaVisitor : public Common::FTVisitor {
                     private:
@@ -53,401 +224,330 @@ namespace FT {
                          }
                          bool targetNode(SgNode *node);
              };
-           //Fault handling specification
-             struct FailureSpecification {
-                    private:
+		//Control structures...
+		  /** 
+		    * @class ControlStruct
+		    * @brief Abstract class for control-structures
+		   */
+		   struct ControlStruct {				
+		     public:
+		     	virtual ~ControlStruct() {}
 
-                    public:
-                         FailureSpecification() {}
-                         ~FailureSpecification() {}
-             };
+		          /**
+		            * Creates the fault-handling implementation
+		            * @param effects A map of the side effects and a descriptor.
+		           **/
+		          virtual SgStatement *getHandler(Closure *declClos, vector<FT::Common::EffectVal *> &evList) {
+		          	throw FT::Common::FTException("Invalid control structure called.");
+		          };
+		   };
+		   /** 
+		    * @class ControlStruct_Check
+		    * @brief Abstract class for the control struct. class checks.
+		    *	   Structure: sym
+		    *			IF(COND(Effect))
+		    *				Fault-operation-case
+		    *			ELSE
+		    *				Proper-operation-case
+		   */
+		   class ControlStruct_Check : public ControlStruct {
+			public:
+				struct Comparator {
+					SgExpression *getHandler(VariantT compOp, SgType *expType, SgExpression *lhs, SgExpression *rhs);
+					bool adjUseAddrOfVar(SgType *t);
+				};
+				Comparator *c;
+			private:
+				ControlStruct *faultCase, *properCase;
+			public:
+				ControlStruct_Check(ControlStruct *faultCase_ = NULL, ControlStruct *properCase_ = NULL, Comparator *c = NULL) {
+					this->faultCase = faultCase_;
+					this->properCase = properCase_;
+					if(c == NULL)
+					   this->c = new Comparator();
+				}
+				virtual pair<SgExpression *, SgStatement *> getCond(Closure *declClos, vector<FT::Common::EffectVal *> &evList);
+				SgStatement *getHandler(Closure *declClos, vector<FT::Common::EffectVal *> &evList);
+		   };
+		   /** 
+		    * @class ControlStruct_Adjudicator
+		    * @brief Abstract class for the control struct. class adjudicator.
+		    *	   Structure (IF-case is optional): 
+		    *			HANDLE(Effect)
+		    *			[ IF(Handler-failed)
+		    *				Second-level control structure ]
+		   */
 
-           //Fault handling policies
-             /** 
-             * @class FailurePolicy
-             * @brief Abstract class for Fault-handling policies.
-             */
-             struct FailurePolicy {
-                    private:
+		   struct ControlStruct_Adjudicator : public ControlStruct {
+		          public:
+		          	//Adjucator
+		            	 /** 
+		                   * @class Adjucator
+		                   * @brief Abstract class for adjucators
+		                   */  
+		                   struct Adjucator {
+		                      virtual ~Adjucator() {}
+		                      virtual SgStatement *getHandler(Closure *declClos, FT::Common::EffectVal *effect, ControlStruct *secondCS) = 0;
+		                   };
+				 /**
+				   * @class Adjucator_Meta
+				   * @brief Invoke adjucator based on meta condition (AdjucatorDec).
+				   */
+			       	   struct Adjucator_Meta : public Adjucator {  
+				    public:
+				      //Meta functor
+					struct AdjucatorDec {
+					  virtual unsigned long operator()(Closure *declClos, FT::Common::EffectVal *effect);
+					};            
+				      //Secondary descriptors
+				        class AdjucatorMech {
+				           private:
+					       bool deleteWhenDone;
+					       unsigned long condClass;
+				               AdjucatorMech *accept, *fail;
+				           public:
+				               AdjucatorMech(unsigned long condClass, AdjucatorMech *a, AdjucatorMech *f, bool deleteWhenDone = true);
+				               virtual ~AdjucatorMech();
+				               virtual SgStatement *getHandler(unsigned long cat, Closure *declClos, FT::Common::EffectVal *effect, ControlStruct *secondCS);
+				        };
+				        template <class V> class AdjucatorMech_Term : public AdjucatorMech {
+				         private:
+					    bool deleteWhenDone;
+				            V *adj;
+				         public:
+				             AdjucatorMech_Term(V *adj = NULL, bool deleteWhenDone = true) : AdjucatorMech(0, this, this, false) {
+						if(adj == NULL)
+							this->adj = new V();
+						else
+							this->adj = adj;
+						this->deleteWhenDone = deleteWhenDone;
+					     }
+				             virtual ~AdjucatorMech_Term() {
+						if(deleteWhenDone)
+							delete adj;
+					     }
+				             virtual SgStatement *getHandler(unsigned long cat, Closure *declClos, FT::Common::EffectVal *effect, ControlStruct *secondCS) {
+						if(adj == NULL)
+							throw FT::Common::FTException("Adjucator not initialized.");
+						else
+							return adj->getHandler(declClos, effect, secondCS);
+					     }
+				        };
+				    private:
+					 static AdjucatorDec defDecAdj;
+					 static AdjucatorMech defMechAdj;
 
-                    protected:
-                         SgGlobal *globalScope;
-                         /**
-                          * Creates the unification section for a set of side effects.
-                          * @param body Statements in the execution phase (= redundant computations)
-                          * @param faultHandler The fault-handling policy used for this particular section.
-                          * @param ftVars A map of the side effects and their respective set of redundant computations.
-                          * @param condSuccess Expressions to deduce whether a fault occured.
-                          **/   
-                         SgStatement *createBasicIf(SgStatement *body, 
-                                                    SgStatement *faultHandler, 
-                                                    map<SgExpression *, set<SgExpression *> *> &ftVars, 
-                                                    SgExpression *condSuccess,
-                                                    SgStatement *elseCase,
-                                                    bool alwaysFail);
-                    public:
-                         virtual ~FailurePolicy() {}
-                         void setGlobalScope(SgGlobal *globalScope) {this->globalScope = globalScope;}
-                         /**
-                          * Creates the fault-handling implementation
-                          * @param body Statements in the execution phase (= redundant computations)
-                          * @param ftVars A map of the side effects and their respective set of redundant computations.
-                          * @param condSuccess Expressions to deduce whether a fault occured.
-                          * @param cascaded Parameter for indicating whether this is the top-level fault handler.
-                          **/  
-                         virtual SgStatement *getHandler(SgStatement *body, 
-                                                         map<SgExpression *, set<SgExpression *> *> &ftVars, 
-                                                         SgExpression *condSuccess, 
-                                                         bool cascaded,
-                                                         bool alwaysFail) {
-                                   throw FT::Common::FTException("Invalid fault policy called.");
-                         };
-             };
+					 AdjucatorDec &decAdj;
+				         AdjucatorMech &mechAdj;
+				    public:
+				         Adjucator_Meta(AdjucatorDec &dAdj = defDecAdj, AdjucatorMech &mAdj = defMechAdj);
+				         virtual SgStatement *getHandler(Closure *declClos, FT::Common::EffectVal *effect, ControlStruct *secondCS);
+				  };
+		          private:
+			    ControlStruct *secondCS;
+		            Adjucator *adj;
+		          public:
+		            ControlStruct_Adjudicator(Adjucator *adj = NULL, ControlStruct *secondCS = NULL);
+			    virtual SgStatement *getHandler(Closure *declClos, vector<FT::Common::EffectVal *> &evList);
+		   };
+
+
              //////////////////////////////////////////////////////////////////////////////////////////////////////
-             /////////////////////////////////////// N-order fault handlers ///////////////////////////////////////
+             ////////////////////////////////// Non-terminal control structures. //////////////////////////////////
              //////////////////////////////////////////////////////////////////////////////////////////////////////
 
-             //Fault policy "Final wish".
+             //Control structure "Final wish".
                /** 
-                * @class FailurePolicy_FinalWish
+                * @class ControlStruct_FinalWish
                 * @brief Invokes a given statement before (optionally) calling a (N-1)-level handler.
+		      *	   Structure: 
+		      *			STM
+		      *			[ Second-level control structure ]
                 */
-               struct FailurePolicy_FinalWish : public FailurePolicy {
+               struct ControlStruct_FinalWish : public ControlStruct {
                     private:
                          SgStatement *stm;
-                         FailurePolicy *sLv;
+                         ControlStruct *sLv;
                          bool alwaysExecStm;
                     public:
                          /**
                           * @param stm Statement that is invoked upon fault.
                           * @param secondLevel Optional second level fault handling policy.
                           **/ 
-                         FailurePolicy_FinalWish(SgStatement *stm, bool alwaysExecStm, FailurePolicy *secondLevel) {
+                         ControlStruct_FinalWish(SgStatement *stm, bool alwaysExecStm, ControlStruct *secondLevel) {
                               this->stm = stm;
                               this->sLv = secondLevel;
                               this->alwaysExecStm = alwaysExecStm; 
                          }
-
-                         SgStatement *getHandler(SgStatement *body, map<SgExpression *, set<SgExpression *> *> &ftVars, SgExpression *condSuccess, bool cascaded, bool alwaysFail);
+                         virtual SgStatement *getHandler(Closure *declClos, vector<FT::Common::EffectVal *> &evList);
                };
 
-             //////////////////////////////////////////////////////////////////////////////////////////////////////
-             /////////////////////////////////////// 2-order fault handlers ///////////////////////////////////////
-             //////////////////////////////////////////////////////////////////////////////////////////////////////
-
-             //Fault policy "Second chance".
+             //Control structure "Second chance".
                /** 
-                * @class FailurePolicy_SecondChance
+                * @class ControlStruct_SecondChance
                 * @brief Perform the computation upto N times while fault occurs, before calling second level handler
+		      *	   Structure: 
+			 *			for(; ; I++)
+			 *				Control-structure "cs"
+			 *				IF(Check-control-structure "es")
+			 *				   break;
+			 *				ELSE	IF(I == N)
+			 *					Control-structure "fs"	 
                 */
-               struct FailurePolicy_SecondChance : public FailurePolicy {
+               struct ControlStruct_SecondChance : public ControlStruct {
                     private:
                          int N;
-                         FailurePolicy &sFP;
+                         ControlStruct *cs, *fs;
+					ControlStruct_Check *es;
                     public:
                          /**
                           * @param N The maximum number of times the computations is performed.
                           * @param secondFP Second level fault handling policy.
                           **/ 
-                         FailurePolicy_SecondChance(FailurePolicy &secondFP, int N) : sFP(secondFP) {this->N = N;}
-
-                         SgStatement *getHandler(SgStatement *body, map<SgExpression *, set<SgExpression *> *> &ftVars, SgExpression *condSuccess, bool cascaded, bool alwaysFail);
+                         ControlStruct_SecondChance(ControlStruct *cs, ControlStruct_Check *es, ControlStruct *fs, int N) {
+						this->N = N;
+						this->cs = cs;
+						this->es = es;
+						this->fs = fs;
+					}
+                         virtual SgStatement *getHandler(Closure *declClos, vector<FT::Common::EffectVal *> &evList);
                };
 
-             //////////////////////////////////////////////////////////////////////////////////////////////////////
-             /////////////////////////////////////// 1-order fault handlers ///////////////////////////////////////
-             //////////////////////////////////////////////////////////////////////////////////////////////////////
 
-             //Fault policy "Die on error".
+             //Control structure "Composition".
                /** 
-                * @class FailurePolicy_DieOnError
-                * @brief Print a messages that error has occured and call assertion to die.
+                * @class ControlStruct_Composition
+                * @brief Use multiple CS's in sequence
                 */
-               struct FailurePolicy_DieOnError : public FailurePolicy {
-                    FailurePolicy_DieOnError() {}
-                    SgStatement *getHandler(SgStatement *body, map<SgExpression *, set<SgExpression *> *> &ftVars, SgExpression *condSuccess, bool cascaded, bool alwaysFail);
-               };
+		     struct ControlStruct_Composition : public ControlStruct {
+				private:
+					vector<ControlStruct *> cs;
+				public:
+					ControlStruct_Composition(ControlStruct *c0 = NULL, ControlStruct *c1 = NULL, ControlStruct *c2 = NULL,
+									    ControlStruct *c3 = NULL, ControlStruct *c4 = NULL, ControlStruct *c5 = NULL,
+									    ControlStruct *c6 = NULL, ControlStruct *c7 = NULL, ControlStruct *c8 = NULL) {
+						if(c0 != NULL)	   cs.push_back(c0);
+						if(c1 != NULL)	   cs.push_back(c1);
+						if(c2 != NULL)	   cs.push_back(c2);
+						if(c3 != NULL)	   cs.push_back(c3);
+						if(c4 != NULL)	   cs.push_back(c4);
+						if(c5 != NULL)	   cs.push_back(c5);
+						if(c6 != NULL)	   cs.push_back(c6);
+						if(c7 != NULL)	   cs.push_back(c7);
+						if(c8 != NULL)	   cs.push_back(c8);
+					}
+					virtual ~ControlStruct_Composition() {}
 
-             //Fault policy "Adjudicator"
+					virtual SgStatement *getHandler(Closure *declClos, vector<FT::Common::EffectVal *> &evList);
+
+					void add(ControlStruct *x) {cs.push_back(x);}
+					bool remove(ControlStruct *x) {
+						for(vector<ControlStruct *>::iterator it = cs.begin(); it != cs.end(); ++it)
+						    if(*it == x) {
+							  cs.erase(it);
+							  return true;
+						    }
+						return false;
+					}
+			};
+
+             /////////////////////////////////////////////////////////ymbPath 3, '((array[i - 1] + array[i + 1]) / 2.0)/////////////////////////////////////////////
+             ////////////////////////////////////// Terminal fault handlers ///////////////////////////////////////
+             //////////////////////////////////////////////////////////////////////////////////////////////////////
+
+             //Control structure "Redundant execute".
                /** 
-                * @class FailurePolicy_Adjudicator
-                * @brief Decide which of the variables that should be passed along...
+                * @class ControlStruct_SecondChance
+                * @brief Perform the computation upto N times (optionally transforming the effect)
                 */
-             struct FailurePolicy_Adjudicator : public FailurePolicy {
-                  public:
-                         //Adjucator
-                          /** 
-                           * @class Adjucator
-                           * @brief Abstract class for adjucators
-                           */  
-                           struct Adjucator {
-                              virtual ~Adjucator() {}
-                              virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType = NULL) = 0;
-                           };
-                  private:
-                    Adjucator *adj;
-                  public:
-                         FailurePolicy_Adjudicator(Adjucator *adj_) {this->adj = adj_;}
+			struct ControlStruct_RedundantExec : public ControlStruct {
+				private:
+					unsigned int Na;
+                         		double Nr;
 
-                         SgStatement *getHandler(SgStatement *body, map<SgExpression *, set<SgExpression *> *> &ftVars, SgExpression *condSuccess, bool cascaded, bool alwaysFail);
-             };
+					struct EffectTransform {
+						virtual FT::Common::SymbDesc *transform(unsigned int index, FT::Common::SymbDesc *sym, FT::Common::SymbDesc *effect) {
+							return effect;
+						}
+					} *effTrans;
+				public:
+                         /**
+                          * @param N Redundant executions (absolute)
+                          * @param secondFP Second level fault handling policy.
+                          **/ 
+					ControlStruct_RedundantExec(unsigned int N, EffectTransform *eff = NULL) {
+						this->Na = N;
+						this->Nr = 0.0;
+						this->effTrans = eff;
+					}
+                         /**
+                          * @param N Redundant executions (relative)
+                          * @param secondFP Second level fault handling policy.
+                          **/ 
+					ControlStruct_RedundantExec(double N, EffectTransform *eff = NULL) {
+						this->Nr = N;
+						this->Na = 0;
+						this->effTrans = eff;
+					}
+					virtual SgStatement *getHandler(Closure *declClos, vector<FT::Common::EffectVal *> &evList);
+			};
 
-
-
-
-
-             //Adjucator "Mean voting" - 
+             //Adjucator "Mean voting"
                /** 
                 * @class Adjucator_Voting
                 * @brief returns the mean of the results
                 */
-               class Adjucator_Voting_Mean : public FailurePolicy_Adjudicator::Adjucator {
-                    private:
-                         vector<double> weights;
-                    public:
-                         Adjucator_Voting_Mean() {this->weights = vector<double>();}
-                         Adjucator_Voting_Mean(vector<double> weights) {this->weights = weights;}
+               struct Adjucator_Voting_Mean : public ControlStruct_Adjudicator::Adjucator {
+                    //Data
+		      ControlStruct_Check::Comparator *c;
+                      vector<double> weights;
+                    //Code
+                         Adjucator_Voting_Mean(ControlStruct_Check::Comparator *c_ = NULL) {
+						this->c = (c_ == NULL ? new ControlStruct_Check::Comparator() : c_);
+					}
+                         Adjucator_Voting_Mean(vector<double> w_, ControlStruct_Check::Comparator *c_ = NULL) : weights(w_.begin(), w_.end()) {
+						this->c = (c_ == NULL ? new ControlStruct_Check::Comparator() : c_);
+					}
                          virtual ~Adjucator_Voting_Mean() {}
-                         virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType = NULL);
+                         virtual SgStatement *getHandler(Closure *declClos, FT::Common::EffectVal *effect, ControlStruct *secondCS);
                };
-             //Adjucator "Median voting" - 
+             //Adjucator "Median voting"
                /** 
                 * @class Adjucator_Voting
                 * @brief returns the median of the results
                 */
-               class Adjucator_Voting_Median : public FailurePolicy_Adjudicator::Adjucator {
-                    public:
-                         Adjucator_Voting_Median() {}
-                         virtual ~Adjucator_Voting_Median() {}
-                         virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType = NULL);
+               struct Adjucator_Voting_Median : public ControlStruct_Adjudicator::Adjucator {
+			//Data
+			  ControlStruct_Check::Comparator *c;
+			  SgExpression *medianElement;
+			  SgVariableDeclaration *resVec;
+			//Code
+                          Adjucator_Voting_Median(ControlStruct_Check::Comparator *c_ = NULL) {
+				this->c = (c_ == NULL ? new ControlStruct_Check::Comparator() : c_);
+				this->medianElement = NULL;					
+			  }
+                          virtual ~Adjucator_Voting_Median() {}
+                          virtual SgStatement *getHandler(Closure *declClos, FT::Common::EffectVal *effect, ControlStruct *secondCS);
                };
              //Adjucator "Exact voting" - 
                /** 
                 * @class Adjucator_Voting
                 * @brief returns the mean of the results
                 */
-               class Adjucator_Voting_Exact : public FailurePolicy_Adjudicator::Adjucator {
-                    private:
-                         map<string, int> varCount;
-                         SgVariableDeclaration *cntVoteDecl, *iDecl;
+               struct Adjucator_Voting_Exact : public ControlStruct_Adjudicator::Adjucator {
+                    //Data
+			 ControlStruct_Check::Comparator *c;
                          bool assumeMajElemExist;
-                    public:
-                         Adjucator_Voting_Exact() {
-                              this->cntVoteDecl = NULL;
-                              this->iDecl = NULL;
-                              this->assumeMajElemExist = true;
-                         }
-                         Adjucator_Voting_Exact(bool assumeMajElemExist) {
-                              this->cntVoteDecl = NULL;
-                              this->iDecl = NULL;
-                              this->assumeMajElemExist = assumeMajElemExist;
+                    //Code
+                         Adjucator_Voting_Exact(bool assumeMajElemExist = false, ControlStruct_Check::Comparator *c_ = NULL) {
+				this->c = (c_ == NULL ? new ControlStruct_Check::Comparator() : c_);
+                              	this->assumeMajElemExist = assumeMajElemExist;
                          }
                          virtual ~Adjucator_Voting_Exact() {}
-                         virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType = NULL);
-               };
-             //Adjucator "Fuzzy voting" - 
-               /** 
-                * @class Adjucator_Voting
-                * @brief 
-                */
-               class Adjucator_Voting_Fuzzy : public FailurePolicy_Adjudicator::Adjucator { 
-                    private:
-                         float epsF;
-                         double epsD;
-                         long double epsLD;
-                    public:
-                         Adjucator_Voting_Fuzzy(float epsF, double epsD, long double epsLD) {
-                              this->epsF = epsF;
-                              this->epsD = epsD;
-                              this->epsLD = epsLD;
-                         }
-                         virtual ~Adjucator_Voting_Fuzzy() {}
-                         virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType = NULL);
-               };
-
-             //Adjucator "Voting" - 
-               /** 
-                * @class Adjucator_Voting
-                * @brief Vote on the results (resolves voter based on type)
-                */
-               struct Adjucator_Voting : public FailurePolicy_Adjudicator::Adjucator {
-                    public:                         
-                         //Secondary descriptors
-                         class VotingMech_Desc {
-                              private:
-                                   boost::regex const *cond;
-                                   VotingMech_Desc *accept, *fail;
-                              public:
-                                   VotingMech_Desc() {
-                                        this->cond = new boost::regex(".*");
-                                        this->accept = NULL;
-                                        this->fail = NULL;
-                                   }
-                                   VotingMech_Desc(boost::regex *c, VotingMech_Desc *a, VotingMech_Desc *f) {
-                                        this->cond = c;
-                                        this->accept = a;
-                                        this->fail = f;
-                                   }
-                                   virtual ~VotingMech_Desc() {};
-
-                                   virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType = NULL) {
-                                        if( (matchType == NULL) || boost::regex_match(matchType->class_name().c_str(), *cond) ) {
-                                             //Avoid infinite loop...
-                                               if(this->accept == NULL) {
-                                                  cout << "Invalid voting mechanism detected in VotingMech_Desc::getHandler()/Accept on input '"
-                                                       << SageInterface::get_name(matchType) << "'." << endl;
-                                                  return NULL;
-                                               }
-                                             return accept->getHandler(initialVar, updatedValues, bb, (matchType == NULL ? NULL : SageInterface::getElementType(matchType)));
-                                        } else {
-                                             //Avoid infinite loop...
-                                               if(this->fail == NULL) {
-                                                  cout << "Invalid voting mechanism detected in VotingMech_Desc::getHandler()/Fail on input '"
-                                                       << SageInterface::get_name(matchType) << "'." << endl;
-                                                  return NULL;
-                                               }
-                                             return fail->getHandler(initialVar, updatedValues, bb, (matchType == NULL ? NULL : SageInterface::getElementType(matchType)));
-                                        }
-                                   }
-                         };
-                         template <class V> class VotingMech_Voter : public VotingMech_Desc {
-                              private:
-                                   V *adjVoter;
-                              public:
-                                   VotingMech_Voter() {}
-                                   virtual ~VotingMech_Voter() {}
-                                   virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType) {
-                                        adjVoter = new V();
-                                        return adjVoter->getHandler(initialVar, updatedValues, bb, matchType);
-                                   }
-                         };
-                    private:
-                         VotingMech_Desc *votingMechPerType;
-                    public:
-                         Adjucator_Voting(VotingMech_Desc *vMpT) {votingMechPerType = vMpT;}
-                         Adjucator_Voting() {
-                              votingMechPerType = new VotingMech_Desc(new boost::regex("Sg("
-                                   "(Array|Function|MemberFunction|PartialFunction|PartialFunctionModifier|Named|Class|Pointer|PointerMember|Reference|Template)Type|"
-                                   "Type(CrayPointer|Default|GlobalVoid|Label|String|Unknown|Void))"), 
-                                   new VotingMech_Voter<Adjucator_Voting_Exact>(), 
-                                   new VotingMech_Desc(
-                                        new boost::regex("SgTypeComplex|SgTypeDouble|SgTypeEllipse|SgTypeFloat|SgTypeLongDouble"), 
-                                        new VotingMech_Voter<Adjucator_Voting_Mean>(), 
-                                        new VotingMech_Voter<Adjucator_Voting_Mean>()) );
-                              /*new VotingMech_FuzzyVote(std::numeric_limits<float>::epsilon(), 
-                                                                 std::numeric_limits<double>::epsilon(),
-                                                                 std::numeric_limits<long double>::epsilon())*/
-                         }
-
-                         virtual SgStatement *getHandler(SgExpression *initialVar, set<SgExpression *> *updatedValues, SgBasicBlock *bb, SgType *matchType = NULL);
-               };
-
-           //Closure structures (for sharing multiple statements in the same)
-            /**
-             * @class FaultHandling_Closure
-             * @brief Closures provides a mechanism for sharing data between fault-tolerant computations. This allows a BB to have a single initalization and unification
-             * section rather than one of each per statement. Hence amortizing the cost.
-             */
-             struct FaultHandling_Closure {
-                    private:
-                         ////////////////// STATE SPACE //////////////////
-                         //int *cfgNode; //To make sure all stmts belong to the same BB.
-                         struct FaultHandling_Closure *parent_closure;
-                         SgGlobal *globalScope;
-                         SgBasicBlock **bbResult, *bbDecl, *bbExecIntra, *bbExecIntraOuter;
-                         SgStatement *exitStm;
-
-                         unsigned int redundancyInterCore, redundancyIntraCore, redundancyIntraOuter;
-                         FailurePolicy &fPInter, &fPIntra;
-                         map<SgExpression *, set<SgExpression *> *> intraFtVars, interFtVars, interCompExps;
-                         vector<SgVariableDeclaration *> intraVarDecl, interVarDecl;
-
-
-                         ////////////////// finalizer //////////////////
-                         SgExpression *generateComparisonExp(map<SgExpression *, set<SgExpression *> *> &ftVars);
-                         bool close();
-                    public:
-                         /**
-                          * @param globalScope The global scope of the basic block/statement.
-                          * @param bbResult Points to the pointer that after close() will contain the transformed basic block.
-                          * @param redundancyInter The number of redundant computations in inter-core dimension.
-                          * @param fPHandlerInter Fault-handling policy for faults in inter-core dimension.
-                          * @param redundancyIntra The number of redundant computations in intra-core dimension.
-                          * @param fPHandlerIntra Fault-handling policy for faults in inter-core dimension.
-                          **/ 
-                         FaultHandling_Closure(SgGlobal *globalScope,
-                                               FaultHandling_Closure *parentClos,
-                                               SgBasicBlock **bbResult,
-                                               unsigned int redundancyInterCore, FailurePolicy &fPIe, 
-                                               unsigned int redundancyIntraCore, unsigned int redundancyIntraOuter, FailurePolicy &fPIa) : fPInter(fPIe), fPIntra(fPIa) {
-                              this->bbDecl = SageBuilder::buildBasicBlock();
-                              this->bbExecIntra = SageBuilder::buildBasicBlock();
-                              this->bbExecIntraOuter = (redundancyIntraOuter > 0 ? SageBuilder::buildBasicBlock() : NULL);
-                              this->redundancyInterCore = redundancyInterCore;
-                              this->redundancyIntraCore = redundancyIntraCore;
-                              this->redundancyIntraOuter = redundancyIntraOuter;
-                              this->globalScope = globalScope;
-                              this->parent_closure = parentClos;
-
-                              this->exitStm = NULL;
-                              this->bbResult = bbResult;
-                         }
-
-                         ~FaultHandling_Closure() { close(); }
-
-                         //Set functions
-                         /**
-                          * Set the exit statement of the basic block. Once this is entered the closure won't accept more statements.
-                          * @param exitStm The exit statement.
-                          **/ 
-                         void setExitStm(SgStatement *exitStm) {this->exitStm = exitStm;}
-
-                         //Get functions
-                         bool hasExitSmt() {return (this->exitStm != NULL);}
-                         SgStatement *getExitStm() {return this->exitStm;}
-                         SgBasicBlock *getDeclScope() {return bbDecl;}
-                         SgBasicBlock *getExecIntraScope() {return bbExecIntra;}
-                         SgBasicBlock *getExecIntraOuterScope() {return bbExecIntraOuter;}
-
-                         //Add functions
-                         /**
-                          * Add computations to the inter section of the closure.
-                          * @param ftVarsMap A map of the side effects and their respective set of redundant computations.
-                          * @param interCompare Map from side effect to comparison expression (as part of fault evaluation in the unification section).
-                          **/ 
-                         bool addInter(map<SgExpression *, set<SgExpression *> *> &ftVarsMap, map<SgExpression *, SgExpression *> &interCompare);
-                         /**
-                          * Get the variable declaration for a given variable name from the init. section.
-                          * A declaration is added to the init. section in the event it previosly hasn't.
-                          * @param varName The name of the variable.
-                          * @param baseType Type of the variable.
-                          * @param initExp Initializer of the variable.
-                          **/ 
-                         SgVariableDeclaration *getInterVar(string varName, SgType *baseType, SgExpression *initExp);
-                         /**
-                          * Add computations to the intra section of the closure.
-                          * @param ftVarsMap A map of the side effects and their respective set of redundant computations.
-                          * @param intraStm The body of the intra section in question.
-                          **/ 
-                         bool addIntra(map<SgExpression *, set<SgExpression *> *> *ftVarsMap, vector<SgStatement *> &intraStm);
-                         /**
-                          * Get the variable declaration for a given variable name from the init. section.
-                          * A declaration is added to the init. section in the event it previosly hasn't.
-                          * @param varName The name of the variable.
-                          * @param baseType Type of the variable.
-                          * @param initExp Initializer of the variable.
-                          **/ 
-                         SgVariableDeclaration *getIntraVar(string varName, SgType *baseType, SgExpression *initExp, bool declareIfNotFound = true);
-                         /**
-                          * Add an arbitrary statement to the current end of the intra section.
-                          * This is used for taking care of unsupported statements.
-                          * @param stm Statement
-                          **/ 
-                         bool addIntraStatement(SgStatement *stm);
+                         virtual SgStatement *getHandler(Closure *declClos, FT::Common::EffectVal *effect, ControlStruct *secondCS);
                };
 
            //Constructor...  
- 
              /**
               * Constructor, initializes class.
               * @param redundancyInter The number of redundant computations in inter-core dimension.
@@ -457,25 +557,14 @@ namespace FT {
               * @param gScope Default global scope.
               * @param bbExecGlobal Basic block for placing global initialization.
               **/                   
-             Transform(unsigned int redundancyIntra, unsigned int redundancyIntraOuter, FailurePolicy &fPHandlerIntra,
-                       unsigned int redundancyInter = 0, FailurePolicy fPHandlerInter = FailurePolicy(),
-                       SgProject *project = NULL, SgGlobal *gScope = NULL) : fPInter(fPHandlerInter), fPIntra(fPHandlerIntra) {
+             Transform(SgProject *project = NULL, SgGlobal *gScope = NULL) {
+		          this->globalScope = gScope;
+		          this->project = project;
 
-               srand ( time(NULL) );
-
-               this->globalScope = gScope;
-               this->project = project;
-               this->initPerformed = false;
-               this->redundancyInter = redundancyInter;
-               this->redundancyIntra = redundancyIntra;
-               this->redundancyIntraOuter = redundancyIntraOuter;
-               this->fPInter.setGlobalScope(gScope);
-               this->fPIntra.setGlobalScope(gScope); 
-
-               if(this->project == NULL)
-                    this->project = SageInterface::getProject();
-               if(this->globalScope == NULL)
-                    this->globalScope = SageInterface::getFirstGlobalScope(this->project);
+		          if(this->project == NULL)
+		               this->project = SageInterface::getProject();
+		          if(this->globalScope == NULL)
+		               this->globalScope = SageInterface::getFirstGlobalScope(this->project);
              }
 
              ~Transform() {
@@ -483,6 +572,7 @@ namespace FT {
              }
 
            //Functions for adding fault tolerance
+	     SgNode *transformSingle(vector<FT::Common::EffectVal *> &effects, Closure *closure, ControlStruct &cs, SgGlobal *globalScope = NULL);
              /**
               * Create redundant computations for all underlying nodes, recursivly.
               * @param inputNode AST input node.
@@ -490,37 +580,22 @@ namespace FT {
               * @param globalScope Global scope of inputNode, overrides global scope given to class constructor.
               * @returns NULL if "inputNode" was added to closure or a transformed SgNode (possibly "inputNode" itself)
               **/
-             SgNode *transformSingle(SgNode *inputNode, FaultHandling_Closure *closure = NULL, SgGlobal *globalScope = NULL);
+             SgNode *transformSingle(SgNode *inputNode, Closure *closure, ControlStruct &cs, SgGlobal *globalScope = NULL);
              /**
               * Create redundant computations for all user specified IR nodes (by visitor).
               * @param startNode Top-most AST input node. If equal to NULL, transformMulti will perform a MemoryPool traversal.
               * @param decisionFunctor Visitor functor. Decides which IR nodes that will be transformed.
               * @param globalScope Global scope of inputNode, overrides global scope given to class constructor.
               **/
-             SgNode *transformMulti(SgNode *startNode = NULL, Common::FTVisitor *decisionFunctor = NULL, SgGlobal *globalScope = NULL);
+             SgNode *transformMulti(ControlStruct &cs, SgNode *startNode = NULL, Common::FTVisitor *decisionFunctor = NULL, SgGlobal *globalScope = NULL);
 
      private:
            //Instance variables...
-             bool initPerformed;
              SgProject *project;
              SgGlobal *globalScope;
-             unsigned int redundancyInter, redundancyIntra, redundancyIntraOuter;
-             FailurePolicy &fPInter, &fPIntra;
-           //Misc. functions
-             /**
-              * Perform one-time initialization that cannot be performed in (de)constructor due to possible side-effects (= FTException)
-              **/ 
-             void performInitialization();
-           //Functions to apply fault tolerance
-             bool applyIntraFT(map<SgExpression *, SgExpression *> &sideEffects, 
-                               set<SgExpression *> &requireInit,
-                               unsigned int redundancyIntraCore, 
-                               FaultHandling_Closure *closure, SgGlobal *globalScope);
-             bool applyInterFT(map<SgExpression *, SgExpression *> &sideEffects, 
-                               set<SgExpression *> &requireInit,
-                               unsigned int redundancyInterCore, unsigned int redundancyIntraCore,
-                               FaultHandling_Closure *closure, SgGlobal *globalScope);
-             bool applyFT(SgStatement *stm, unsigned int redundancyInterCore, unsigned int redundancyIntraCore, FaultHandling_Closure *closure, SgGlobal *globalScope);
+	   //Helper functions
+	     static void revokeEffects(Closure *c, vector<FT::Common::EffectVal *> &effects);
    };
 };
+
 #endif

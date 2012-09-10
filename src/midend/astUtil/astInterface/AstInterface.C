@@ -2098,7 +2098,8 @@ bool AstInterface::IsVarRef( const AstNodePtr& _exp, AstNodeType* vartype, strin
     return false;
   }
   if (_scope != 0 || isglobal != 0) {
-    SgScopeStatement *scope = (decl == 0)? 0 : GetScope(decl);
+    //(JL) 08/28/12: SageInterface::getScope() seems to work better than GetScope()
+    SgScopeStatement *scope = (decl == 0)? 0 : SageInterface::getScope(decl);
     if (_scope != 0)
        *_scope =  AstNodePtrImpl(scope);
     if (isglobal != 0)
