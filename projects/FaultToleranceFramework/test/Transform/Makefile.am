@@ -20,4 +20,4 @@ CORRECT_OUTPUT = $(TEST_PATH)/fttest1_C.output \
 	$(TEST_PATH)/fttest2_C.output \
 	$(TEST_PATH)/fttest4_C.output
 
-EXTRA_DIST = $(TEST_CODES) $(CORRECT_OUTPUT)
+EXTRA_DIST = $(TEST_CODES) $(CORRECT_OUTPUT) Values.h
