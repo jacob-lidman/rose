@@ -2145,11 +2145,6 @@ projects/PolyhedralModel/tests/rose-max-cover/Makefile
 projects/UQ/Makefile
 projects/UQ/src/Makefile
 projects/UQ/test/Makefile
-projects/uniformSourceBinaryAnalysis/Makefile
-projects/uniformSourceBinaryAnalysis/src/Makefile
-projects/uniformSourceBinaryAnalysis/include/Makefile
-projects/uniformSourceBinaryAnalysis/test/Makefile
-projects/uniformSourceBinaryAnalysis/test/StructAnal/Makefile
 projects/FaultToleranceFramework/Makefile
 projects/FaultToleranceFramework/src/Makefile
 projects/FaultToleranceFramework/src/Algorithms/Makefile

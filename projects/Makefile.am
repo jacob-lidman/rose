@@ -148,18 +148,12 @@ SUBDIRS += PolyhedralModel
 # DQ (9/12/2009): This was not added to ROSE correctly, please let me help you do this.
 #     StaticDynamicAnalysis/DynamicCPU
 
-if ROSE_BUILD_BINARY_ANALYSIS_SUPPORT
-	if HAVE_YICES
-		SUBDIRS += uniformSourceBinaryAnalysis
-	endif
-endif
-
-# JL (3/27/2012): The UQ translator requires the libUQ from SANDIA to compile...
+# JL (3/27/2012): The UQ translator requires libUQ from SANDIA to compile...
 if ROSE_WITH_UQTK_INCLUDE
 	SUBDIRS += UQ
 endif
 
-EXTRA_DIST = StaticDynamicAnalysis uniformSourceBinaryAnalysis UQ
+EXTRA_DIST = StaticDynamicAnalysis UQ
 
 
 check-local:
